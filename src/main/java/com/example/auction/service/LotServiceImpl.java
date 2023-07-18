@@ -1,120 +1,106 @@
 package com.example.auction.service;
 
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import com.example.auction.dto.*;
-import com.example.auction.exception.DataException;
-import com.example.auction.exception.NotIdException;
-import com.example.auction.exception.StatusException;
-import com.example.auction.pojo.LotModel;
-import com.example.auction.pojo.StatusLot;
+import com.example.auction.model.Bid;
+import com.example.auction.model.Lot;
 import com.example.auction.repository.BidRepository;
 import com.example.auction.repository.LotRepository;
-import com.example.auction.service.maping.BidMap;
-import com.example.auction.pojo.BidModel;
-import com.example.auction.service.maping.LotMap;
 
-import java.util.Set;
+import java.io.*;
+import java.util.*;
 import java.util.stream.Collectors;
 
-
-@Data
-@AllArgsConstructor
 @Service
+@RequiredArgsConstructor
 public class LotServiceImpl implements LotService {
-    @Autowired
     private final LotRepository lotRepository;
-    @Autowired
     private final BidRepository bidRepository;
 
-    private final String[] HEADERS = {"id", "title", "description", "status", "lastBidder", "currentPrice"};
-
     @Override
-    public Bid getBidFirstToId(int id) {
-        return BidMap.mapToBid(bidRepository.getFirstByBidDateContainingOrderByLotID(id).orElseThrow(NotIdException::new));
+    public void createLot(LotCreate lotCreate) {
+        lotRepository.save(lotCreate.toLot());
     }
 
     @Override
-    public Bid getBidFrequentToId(int id) {
-        return BidMap.mapToBid(bidRepository.getBidFrequentToId(id).orElseThrow(NotIdException::new));
+    public ResponseEntity<?> startLot(Integer id) throws IOException {
+        Lot lot = lotRepository.findById(id).orElseThrow(IOException::new);
+        if (lot.getStatus() != LotStatus.valueOf("STARTED")) {
+            lot.setStatus(LotStatus.valueOf("STARTED"));
+            lotRepository.save(lot);
+            return new ResponseEntity<>("Лот переведен в статус начато", HttpStatus.OK);
+        } else return new ResponseEntity<>(HttpStatus.OK);
     }
 
     @Override
-    public FullLot getFullLot(int id) {
-        return lotRepository.getFullLot(id);
+    public ResponseEntity<?> stopLot(Integer id) throws IOException {
+        Lot lot = lotRepository.findById(id).orElseThrow(IOException::new);
+        if (lot.getStatus() != LotStatus.valueOf("STOPPED")) {
+            lot.setStatus(LotStatus.valueOf("STOPPED"));
+            lotRepository.save(lot);
+            return new ResponseEntity<>("Лот перемещен в статус остановлен", HttpStatus.OK);
+        } else return new ResponseEntity<>(HttpStatus.OK);
+    }
+
+    public Integer getCurrentPrice(Integer id) throws IOException {
+        Lot lot = lotRepository.findById(id).orElseThrow(IOException::new);
+        int countBidByLot = (int) bidRepository.findAll().stream()
+                .filter(bid -> bid.getLot().getId().equals(lot.getId()))
+                .count();
+        return lot.getBidPrice() * countBidByLot + lot.getStartPrice();
     }
 
     @Override
-    public ResponseEntity<?> startBidding(int id) {
-        LotModel lotModel = lotRepository.findById(id).orElseThrow(NotIdException::new);
-        lotModel.setStatus(StatusLot.STARTED);
-        lotRepository.save(lotModel);
-        return new ResponseEntity<>("Лот переведен в статус начато", HttpStatus.OK);
+    public LotFullInfo getFullLot(Integer id) throws IOException {
+        Lot lot = lotRepository.findById(id).orElseThrow(IOException::new);
+        BidDTO bidDTO = BidDTO.fromBid(bidRepository.findAll().stream()
+                .filter(bid -> bid.getLot().getId().equals(lot.getId()))
+                .sorted(Comparator.comparing(Bid::getBidderName))
+                .max(Comparator.comparing(Bid::getBidDate))
+                .orElse(new Bid("не найден")));
+        LotFullInfo lotFullInfo = new LotFullInfo();
+        lotFullInfo.setId(lot.getId());
+        lotFullInfo.setStatus(lot.getStatus());
+        lotFullInfo.setTitle(lot.getTitle());
+        lotFullInfo.setDescription(lot.getDescription());
+        lotFullInfo.setStartPrice(lot.getStartPrice());
+        lotFullInfo.setBidPrice(lot.getBidPrice());
+        lotFullInfo.setCurrentPrice(getCurrentPrice(id));
+        lotFullInfo.setLastBid(bidDTO);
+        return lotFullInfo;
     }
 
     @Override
-    public ResponseEntity<?> placeABet(int id, String bidderName) {
-        LotModel lotModel = lotRepository.findById(id).orElseThrow(NotIdException::new);
-        if (lotModel.getStatus().equals(StatusLot.STARTED)) {
-            BidModel bidModel = new BidModel(bidderName, lotModel);
-            bidRepository.save(bidModel);
-            return new ResponseEntity<>("Ставка создана " + bidderName, HttpStatus.OK);
-        } else throw new StatusException();
+    public Collection<LotDTO> findLots(Integer page, LotStatus status) {
+        Page<Lot> lotPage = lotRepository
+                .findAll(PageRequest.of(page, 10));
+        Collection<Lot> lotList = lotPage.stream()
+                .filter(lot -> lot.getStatus().equals(status))
+                .toList();
+        return lotList.stream()
+                .map(LotDTO::fromLot)
+                .collect(Collectors.toList());
     }
 
     @Override
-    public ResponseEntity<?> stopBidding(int id) {
-        LotModel lotModel = lotRepository.findById(id).orElseThrow(NotIdException::new);
-        lotModel.setStatus(StatusLot.STOPPED);
-        lotRepository.save(lotModel);
-        return new ResponseEntity<>("Лот перемещен в статус остановлен", HttpStatus.OK);
-    }
-
-    @Override
-    public Lot createLot(CreateLot lot) {
-        if (CheckCreateLot.checkCreateLot(lot)) {
-            LotModel lotModel = LotMap.mapToLotModel(lot);
-            lotRepository.save(lotModel);
-            return LotMap.mapToLot(lotModel);
-        }
-        throw new DataException();
-    }
-
-    @Override
-    public Set<Lot> getSetLot(String status, int page) {
-        Pageable pageable = PageRequest.of(page, 10);
-        Page<LotModel> lotModelPage = lotRepository.findAll(pageable);
-        Set<Lot> lots = lotModelPage.stream().map(LotMap::mapToLot).collect(Collectors.toSet());
-        return lots.stream().filter(lot -> lot.getStatus().getStatus().equals(status)).collect(Collectors.toSet());
-    }
-
-    @Override
-    public void getFile() {
-//        Iterable<FullLotNov> fullLots = lotRepository.getFullLots();
-//        Set<FullLot> fullLots = new HashSet<>();
-//        for (LotModel lotModel : lotModels) {
-//            fullLots.add(FullLotMap.mapToFullLot(lotModel));
-//        }
-//        StringWriter sw = new StringWriter();
-//        CSVFormat format = CSVFormat.DEFAULT.builder()
-//                .setHeader(HEADERS)
-//                .build();
-//        Path path = Paths.get("src/main/resources/lot_info" + ".csv");
-//        try (
-//                BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8);
-//                CSVPrinter printer = new CSVPrinter(writer, format);
-//        ) {
-//            printer.printRecords();
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
+    public List<LotFromExport> listAll() {
+        List<LotFromExport> lotList = lotRepository.findAll().stream()
+                .map(LotFromExport::fromLot)
+                .peek(lotFullInfo -> {
+                    try {
+                        lotFullInfo.setCurrentPrice(getCurrentPrice(lotFullInfo.getId()));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
+        lotList.forEach(l -> l.setLastBid(bidRepository.getLastBid(l.getId())));
+        return lotList;
     }
 }

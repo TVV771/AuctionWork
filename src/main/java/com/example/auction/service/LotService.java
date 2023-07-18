@@ -1,39 +1,22 @@
 package com.example.auction.service;
 
-
 import org.springframework.http.ResponseEntity;
 import com.example.auction.dto.*;
 
 import java.io.IOException;
-import java.util.Set;
+import java.util.Collection;
+import java.util.List;
 
 public interface LotService {
+    void createLot(LotCreate lotCreate);
 
-    //    Возвращает первого ставившего на этот лот
-    Bid getBidFirstToId(int id);
+    ResponseEntity<?> startLot(Integer id) throws IOException;
 
-    //    Возвращает имя ставившего на данный лот наибольшее количество раз
-    Bid getBidFrequentToId(int id);
+    ResponseEntity<?> stopLot(Integer id) throws IOException;
 
-    //    Получить полную информацию о лоте
-    FullLot getFullLot(int id);
+    LotFullInfo getFullLot(Integer id) throws IOException;
 
-    //    Начать торги по лоту
-    ResponseEntity<?> startBidding(int id);
+    Collection<LotDTO> findLots(Integer page, LotStatus status);
 
-    //    Сделать ставку по лоту
-    ResponseEntity<?> placeABet(int id, String bidderName);
-
-    //    Остановить торги по лоту
-    ResponseEntity<?> stopBidding(int id);
-
-    //    Создает новый лот
-    Lot createLot(CreateLot lot);
-
-    //    Получить все лоты, основываясь на фильтре статуса и номере страницы
-    Set<Lot> getSetLot(String status, int page);
-
-    //    Экспортировать все лоты в файл CSV
-    void getFile() throws IOException;
-
+    List<LotFromExport> listAll();
 }
