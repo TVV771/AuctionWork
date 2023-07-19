@@ -16,7 +16,7 @@ public interface BidRepository extends JpaRepository<Bid, Integer> {
             nativeQuery = true)
     Bid getLastBid(Integer id);
 
-    @Query("SELECT new ru.skypro.lessons.springboot.courseworkeasyauction.model. " +
+    @Query("SELECT new com.example.auction.model. " +
             "Bid (b.bidderName, b.bidDate, b.lot) " +
             "FROM Lot l join fetch Bid b " +
             "WHERE b.lot = l AND l.id=?1")
